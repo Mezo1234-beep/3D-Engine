@@ -1,7 +1,7 @@
 from panda3d.core import *
 
 
-class BufferPainter():
+class BufferPainter:
     def __init__(self, brushList, showBuff=False):
         self.use_gl_select = False
         self.pixel = VBase4()  # used by gl picking

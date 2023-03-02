@@ -5,7 +5,7 @@ from sqliteloader import loadModel
 from direct.stdpy.file import listdir
 
 
-class ObjectPainter():
+class ObjectPainter:
     def __init__(self, lightManager):
         self.lightManager = lightManager
         # collision detection setup

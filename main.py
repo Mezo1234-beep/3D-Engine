@@ -109,8 +109,8 @@ class Editor(DirectObject):
         self.filters = self.setupFilters(manager, fxaa_only=fxaa_only)
 
         # manager for point lights
-        self.lManager = LightManager()
-        # self.lManager.addLight((256.0, 256.0, 30.0), (1.0, 0.0, 0.0), 40.0)
+        self.light_manager = LightManager()
+        # self.light_manager.addLight((256.0, 256.0, 30.0), (1.0, 0.0, 0.0), 40.0)
 
         # make a grid
         cm = CardMaker("plane")
@@ -458,7 +458,7 @@ class Editor(DirectObject):
         self.snap = self.gui.elements[self.prop_panel_id]['entry_snap']
 
         # object painter
-        self.objectPainter = ObjectPainter(self.lManager)
+        self.objectPainter = ObjectPainter(self.light_manager)
 
         # terrain mesh
         # the 80k mesh loads to slow from egg, using bam
@@ -627,11 +627,11 @@ class Editor(DirectObject):
 
         # light
         # sun
-        self.sun = self.lManager.addLight(pos=(256.0, 256.0, 200.0), color=(0.9, 0.9, 0.9), radius=10000.0)
+        self.sun = self.light_manager.addLight(pos=(256.0, 256.0, 200.0), color=(0.9, 0.9, 0.9), radius=10000.0)
         render.setShaderInput('daytime', 12.0)
 
         # ambient light
-        self.lManager.ambientLight(0.15, 0.15, 0.2)
+        self.light_manager.ambientLight(0.15, 0.15, 0.2)
 
         self.shadowCamera = render.attachNewNode('fake_shadow_camera_node')
         self.shadowCamera.setPos(256, 256, 1000)
@@ -810,13 +810,13 @@ class Editor(DirectObject):
             if self.objectPainter.currentObject.hasPythonTag('hasLight'):
                 id = self.objectPainter.currentObject.getPythonTag('hasLight')
                 rgb = self.gui.sample['frameColor']
-                self.lManager.setColor(id, rgb)
+                self.light_manager.setColor(id, rgb)
                 self.objectPainter.currentObject.setPythonTag('light_color', [rgb[0], rgb[1], rgb[2]])
         elif self.objectPainter.selectedObject:
             if self.objectPainter.selectedObject.hasPythonTag('hasLight'):
                 id = self.objectPainter.selectedObject.getPythonTag('hasLight')
                 rgb = self.gui.sample['frameColor']
-                self.lManager.setColor(id, rgb)
+                self.light_manager.setColor(id, rgb)
                 self.objectPainter.selectedObject.setPythonTag('light_color', [rgb[0], rgb[1], rgb[2]])
 
     def clockTick(self, task):
@@ -866,8 +866,8 @@ class Editor(DirectObject):
             p = sunpos * -180.0
 
         self.sunNode.setP(p)
-        # self.lManager.moveLight(self.sun,self.shadowCamera.getPos(render))
-        self.lManager.setLight(id=self.sun, pos=self.shadowCamera.getPos(render), color=sunColor, radius=10000.0)
+        self.light_manager.moveLight(self.sun,self.shadowCamera.getPos(render))
+        self.light_manager.setLight(id=self.sun, pos=self.shadowCamera.getPos(render), color=sunColor, radius=10000.0)
         self.skydome.setShaderInput("sunColor", sunColor)
         self.skydome.setShaderInput("skyColor", skyColor)
         self.skydome.setShaderInput("cloudColor", cloudColor)
@@ -880,7 +880,7 @@ class Editor(DirectObject):
                     pos = child.getPos(render)
                     color = child.getPythonTag('light_color')
                     radi = child.getScale()[0] * 10.0
-                    id = self.lManager.addLight(pos, color, radi)
+                    id = self.light_manager.addLight(pos, color, radi)
                     child.setPythonTag('hasLight', id)
 
     def setupFilters(self, manager, path="", fxaa_only=False):
@@ -903,7 +903,7 @@ class Editor(DirectObject):
         if node:
             if node.hasPythonTag('hasLight'):
                 l = node.getPythonTag('hasLight')
-                self.lManager.removeLight(l)
+                self.light_manager.removeLight(l)
             if node in self.objectPainter.actors:
                 self.objectPainter.actors.pop(self.objectPainter.actors.index(node)).cleanup()
             node.removeNode()
@@ -931,7 +931,7 @@ class Editor(DirectObject):
         self.objectPainter.selectedObject.setScale(scale)
         if self.objectPainter.selectedObject.hasPythonTag('hasLight'):
             id = self.objectPainter.selectedObject.getPythonTag('hasLight')
-            self.lManager.setLight(id, self.objectPainter.selectedObject.getPos(render), rgb, 10.0 * scale)
+            self.light_manager.setLight(id, self.objectPainter.selectedObject.getPos(render), rgb, 10.0 * scale)
             self.objectPainter.selectedObject.setPythonTag('light_color', [rgb[0], rgb[1], rgb[2]])
             self.gui.colorPickerFrame.hide()
         self.gui.elements[self.select_toolbar_id]['buttons'][0]['focus'] = 0
@@ -1625,8 +1625,8 @@ class Editor(DirectObject):
                     if self.objectPainter.selectedObject.hasPythonTag('hasLight'):
                         self.gui.colorPickerFrame.show()
                         id = self.objectPainter.selectedObject.getPythonTag('hasLight')
-                        color = [int(self.lManager.lights[id][4] * 255), int(self.lManager.lights[id][5] * 255),
-                                 int(self.lManager.lights[id][6] * 255)]
+                        color = [int(self.light_manager.lights[id][4] * 255), int(self.light_manager.lights[id][5] * 255),
+                                 int(self.light_manager.lights[id][6] * 255)]
                         self.gui.colorEntry.set(str(color)[1:-1])
                         self.gui.overrideColor()
 
