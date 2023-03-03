@@ -2,10 +2,15 @@ from panda3d.core import *
 
 
 class BufferPainter:
+    """
+    class responsible for pointer and see where the mouse is.
+    """
+
     def __init__(self, brushList, showBuff=False):
         self.use_gl_select = False
         self.pixel = VBase4()  # used by gl picking
         self.brushList = brushList
+
         # make a pointer
         self.pointer = loader.loadModel("data/pointer")
         self.pointer.reparentTo(render)
@@ -13,11 +18,13 @@ class BufferPainter:
         self.pointer.hide(BitMask32.bit(1))
         self.pointer.hide(BitMask32.bit(2))
         self.pointer.setShader(Shader.load(Shader.SLGLSL, "shaders/editor_v.glsl", "shaders/editor_f.glsl"))
+
         # the plane will bu used to see where the mouse pointer is
         self.z = 25.5
         self.pointer.setZ(self.z)
         self.plane = Plane(Vec3(0, 0, 1), Point3(0, 0, self.z))
 
+        # init variables
         self.buffers = []
         self.brushes = []
         self.textures = []
@@ -37,21 +44,23 @@ class BufferPainter:
 
         taskMgr.add(self.__getMousePos, "_Editor__getMousePos")
 
-    def setupGlSelect(self, height, scale=100.0):
+    # useless
+    def setup_gl_select(self, height, scale=100.0):
+        """
+        This method is used while changing the config of sky and water, so far it does nothing.
+        """
         self.use_gl_select = True
         self.pointer.setZ(0.0)
         self.pickingTex = Texture("picking_texture")
+
         props = FrameBufferProperties()
         props.setRgbaBits(16, 16, 0, 0)
         props.setSrgbColor(False)
-        self.pickingBuffer = base.win.makeTextureBuffer("picking_buffer",
-                                                        1, 1,
-                                                        self.pickingTex,
-                                                        to_ram=True,
-                                                        fbp=props)
 
+        self.pickingBuffer = base.win.makeTextureBuffer("picking_buffer", 1, 1, self.pickingTex, to_ram=True, fbp=props)
         self.pickingBuffer.setClearColor(VBase4())
         self.pickingBuffer.setSort(10)
+
         self.pickingPeeker = self.pickingTex.peek()
         self.pickingCam = base.makeCamera(self.pickingBuffer)
         node = self.pickingCam.node()
@@ -75,6 +84,7 @@ class BufferPainter:
         # state_np.setAttrib(shaderAtt, 1)
         node.setInitialState(state_np.getState())
 
+    # used with saving/exporting
     def write(self, id, file, returnPNMImage=False):
         p = PNMImage(self.buffSize[id], self.buffSize[id], 4)
         base.graphicsEngine.extractTextureData(self.textures[id], base.win.getGsg())

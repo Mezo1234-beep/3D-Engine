@@ -23,7 +23,7 @@ def _resetPivot(frame):
     frame.flattenLight()
 
 
-class GuiHelper():
+class GuiHelper:
     def __init__(self, path="", theme='icon'):
         self.elements = []
         self.path = path
