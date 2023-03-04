@@ -1,9 +1,53 @@
-from init_imports import *
+from __future__ import print_function
+from panda3d.core import loadPrcFile
+
+loadPrcFile("cfg.prc")
+from direct.showbase.AppRunnerGlobal import appRunner
+from panda3d.core import Filename
+
+if appRunner:
+    path = appRunner.p3dFilename.getDirname() + '/'
+else:
+    path = ""
+from panda3d.core import WindowProperties
+
+wp = WindowProperties.getDefault()
+wp.setOrigin(-2, -2)
+wp.setTitle("Panda3D Level Editor")
+WindowProperties.setDefault(wp)
+
+from panda3d.core import *
+from direct.showbase import ShowBase
+from direct.showbase.DirectObject import DirectObject
+from direct.filter.FilterManager import FilterManager
+from camcon import CameraControler
+
+# -------------------- Project Files Imports -----------
+from buffpaint import BufferPainter
+from guihelper import GuiHelper
+from collisiongen import GenerateCollisionEgg
+from navmeshgen import GenerateNavmeshCSV
+from objectpainter import ObjectPainter
+from sqliteloader import SaveScene, LoadScene
+from lightmanager import LightManager
+# -------------------------------
+
+from os import makedirs
+from direct.stdpy.file import listdir, exists, isdir
+import random
+
+# -------------------------------
+from helper import *
+from cfg import loadcfg, cfg
 
 
 class Editor(DirectObject):
+
     def __init__(self):
-        self.loadcfg()
+        # load default values
+        super().__init__()
+        loadcfg()
+
         # init ShowBase
         base = ShowBase.ShowBase()
         render.hide(MASK_TERRAIN_ONLY)
@@ -22,6 +66,61 @@ class Editor(DirectObject):
         # self.light_manager.addLight((256.0, 256.0, 30.0), (1.0, 0.0, 0.0), 40.0)
 
         # make a grid
+        self.init_grid()
+
+        # axis to help orient the scene
+        self.init_axis()
+
+        # store variables needed for diferent classes
+        self.init_gerneral_variables()
+
+        # camera control
+        self.init_camera()
+
+        # painter
+        self.init_painter()
+
+        # GUI
+        self.init_gui()
+
+        # object painter
+        self.objectPainter = ObjectPainter(self.light_manager)
+
+        # terrain mesh the 80k mesh loads to slow from egg, using bam self.mesh=loader.loadModel('data/mesh80k.egg')
+        # #there's also a 3k, 10k and 35k mesh (can be broken at this point!)
+
+        self.init_mesh()
+
+        # grass
+        self.init_grass()
+
+        # skydome
+        self.init_sky()
+
+        # waterplane
+        self.init_water()
+
+        # light
+        # sun
+        self.init_light()
+
+        # fog
+        # rgb color + coefficiency in alpha
+        render.setShaderInput("fog", Vec4(0.4, 0.4, 0.4, 0.002))
+
+        self.set_keys()
+
+        # make sure things have some/any starting value
+        self.set_init_values()
+
+        # tasks
+        taskMgr.add(self.perFrameUpdate, 'perFrameUpdate_task', sort=46)
+        # self.clock=12.0
+        # taskMgr.doMethodLater(.1, self.clockTick,'clock_task')
+
+    # -------------- initializing ------------------
+
+    def init_grid(self):
         cm = CardMaker("plane")
         cm.setFrame(0, 512, 0, 512)
         self.grid = render.attachNewNode(cm.generate())
@@ -37,7 +136,8 @@ class Editor(DirectObject):
         self.grid.hide(MASK_WATER)
         self.grid.hide(MASK_SHADOW)
         # self.grid.hide()
-        # axis to help orient the scene
+
+    def init_axis(self):
         self.axis = loader.loadModel('data/axis.egg')
         self.axis.reparentTo(render)
         self.axis.setLightOff()
@@ -45,7 +145,7 @@ class Editor(DirectObject):
         self.axis.hide(MASK_SHADOW)
         self.axis.setShader(Shader.load(Shader.SLGLSL, cfg["shader_editor_v"], cfg["shader_editor_f"]))
 
-        # store variables needed for diferent classes
+    def init_gerneral_variables(self):
         self.skyimg = PNMImage(cfg['sky_color'])
         self.mode = MODE_HEIGHT
         self.height_mode = HEIGHT_MODE_UP
@@ -65,13 +165,13 @@ class Editor(DirectObject):
         self.current_grass_textures = [0, 1, 2]
         self.last_object_index = 0
 
-        # camera control
+    def init_camera(self):
         base.disableMouse()
         self.controler = CameraControler(cfg)
         self.controler.cameraNode.setZ(25.5)
         render.setShaderInput('camera', base.cam)
 
-        # painter
+    def init_painter(self):
         self.brushList = []
         dirList = listdir(Filename(path + cfg['brush_dir']).toOsSpecific())
         for fname in dirList:
@@ -98,7 +198,7 @@ class Editor(DirectObject):
         if cfg['use_gl_select']:
             self.painter.setup_gl_select(self.painter.textures[BUFFER_HEIGHT])
 
-        # GUI
+    def init_gui(self):
         self.gui = GuiHelper(path, cfg['theme'])
         # tooltip bar
         self.tooltip = self.gui.addTooltip(self.gui.BottomLeft, (564, 32), y_offset=-96)
@@ -355,37 +455,31 @@ class Editor(DirectObject):
                            [WALK_MODE_WALK], tooltip=self.tooltip, tooltip_text='Paint walkable area')
         self.gui.grayOutButtons(self.walkmap_toolbar_id, (0, 2), 0)
 
-        # extra buttons for grass paint (add/remove)
-        # self.grass_toolbar_id=self.gui.addToolbar(self.gui.BottomRight, (128, 64), icon_size=64, y_offset=-64,x_offset=-128, hover_command=self.onToolbarHover, color=(1,1,1, 0.3))
-        # self.gui.addButton(self.grass_toolbar_id, cfg['theme']+'/no_grass.png', self.changeGrassMode,[GRASS_MODE_REMOVE],tooltip=self.tooltip, tooltip_text='Remove grass')
-        # self.gui.addButton(self.grass_toolbar_id, cfg['theme']+'/grass.png', self.changeGrassMode,[GRASS_MODE_PAINT],tooltip=self.tooltip, tooltip_text='Paint grass')
-        # self.gui.grayOutButtons(self.grass_toolbar_id, (0,2), 1)
-        # self.painter.brushes[BUFFER_GRASS].setColor(1,0,0,1)
+        # extra buttons for grass paint (add/remove) self.grass_toolbar_id=self.gui.addToolbar(self.gui.BottomRight,
+        # (128, 64), icon_size=64, y_offset=-64,x_offset=-128, hover_command=self.onToolbarHover, color=(1,1,1,
+        # 0.3)) self.gui.addButton(self.grass_toolbar_id, cfg['theme']+'/no_grass.png', self.changeGrassMode,
+        # [GRASS_MODE_REMOVE],tooltip=self.tooltip, tooltip_text='Remove grass') self.gui.addButton(
+        # self.grass_toolbar_id, cfg['theme']+'/grass.png', self.changeGrassMode,[GRASS_MODE_PAINT],
+        # tooltip=self.tooltip, tooltip_text='Paint grass') self.gui.grayOutButtons(self.grass_toolbar_id, (0,2),
+        # 1) self.painter.brushes[BUFFER_GRASS].setColor(1,0,0,1)
 
         # properties panel
         self.prop_panel_id = self.gui.addPropPanel()
         self.props = self.gui.elements[self.prop_panel_id]['entry_props']
         self.snap = self.gui.elements[self.prop_panel_id]['entry_snap']
 
-        # object painter
-        self.objectPainter = ObjectPainter(self.light_manager)
-
-        # terrain mesh
-        # the 80k mesh loads to slow from egg, using bam
-        # self.mesh=loader.loadModel('data/mesh80k.egg') #there's also a 3k, 10k and 35k mesh (can be broken at this point!)
+    def init_mesh(self):
         self.mesh = loader.loadModel(cfg['terrain_mesh'])
-        # load default textures:
-        # TODO(maybe): remove default tex from model ... and fix filtering then somehow
-        # for tex in self.textures_diffuse[:6]:
-        #    id=self.textures_diffuse.index(tex)
-        #    self.mesh.setTexture(self.mesh.findTextureStage('tex{0}'.format(id+1)), loader.loadTexture(tex, anisotropicDegree=2 ), 1)
-        # for tex in self.textures_normal[:6]:
-        #    id=self.textures_normal.index(tex)
-        #    self.mesh.setTexture(self.mesh.findTextureStage('tex{0}n'.format(id+1)), loader.loadTexture(tex, anisotropicDegree=2), 1)
+        # load default textures: TODO(maybe): remove default tex from model ... and fix filtering then somehow for
+        #  tex in self.textures_diffuse[:6]: id=self.textures_diffuse.index(tex) self.mesh.setTexture(
+        #  self.mesh.findTextureStage('tex{0}'.format(id+1)), loader.loadTexture(tex, anisotropicDegree=2 ),
+        #  1) for tex in self.textures_normal[:6]: id=self.textures_normal.index(tex) self.mesh.setTexture(
+        #  self.mesh.findTextureStage('tex{0}n'.format(id+1)), loader.loadTexture(tex, anisotropicDegree=2), 1)
 
         # srgb=ConfigVariableBool('framebuffer-srgb',False).getValue()
-        # srgb=cfg["srgb"]
+        srgb = cfg["srgb"]
         # print srgb
+
         for tex in self.textures_diffuse[:6]:
             id = self.textures_diffuse.index(tex)
             new_tex = loader.loadTexture(tex, anisotropicDegree=2)
@@ -398,6 +492,7 @@ class Editor(DirectObject):
                     tex_format = Texture.F_srgb_alpha
                 new_tex.setFormat(tex_format)
             self.mesh.setTexture(self.mesh.findTextureStage('tex{0}'.format(id + 1)), new_tex, 1)
+
         for tex in self.textures_normal[:6]:
             id = self.textures_normal.index(tex)
             self.mesh.setTexture(self.mesh.findTextureStage('tex{0}n'.format(id + 1)),
@@ -427,7 +522,8 @@ class Editor(DirectObject):
             self.mesh.hide(MASK_SHADOW)
         if cfg['reflect_terrain'] == False:
             self.mesh.hide(MASK_WATER)
-        # grass
+
+    def init_grass(self):
         self.grass = render.attachNewNode('grass')
         self.CreateGrassTile(uv_offset=Vec2(0, 0), pos=(0, 0, 0), parent=self.grass, fogcenter=Vec3(256, 256, 0))
         self.CreateGrassTile(uv_offset=Vec2(0, 0.5), pos=(0, 256, 0), parent=self.grass, fogcenter=Vec3(256, 0, 0))
@@ -462,7 +558,8 @@ class Editor(DirectObject):
         self.grass.setTexture(self.grass.findTextureStage('tex3'), grass_tex2, 1)
         if cfg['grass'] == False:
             self.grass.hide()
-        # skydome
+
+    def init_sky(self):
         self.skydome = loader.loadModel(cfg['sky_mesh'])
         self.skydome.reparentTo(render)
         self.skydome.setPos(256, 256, -200)
@@ -484,7 +581,8 @@ class Editor(DirectObject):
         self.skydome.setTransparency(TransparencyAttrib.MNone, 1)
         if cfg['reflect_sky'] == False:
             self.skydome.hide(MASK_WATER)
-        # waterplane
+
+    def init_water(self):
         self.waterNP = loader.loadModel(cfg['water_mesh'])
         self.waterNP.setPos(256, 256, 0)
         self.waterNP.setTransparency(TransparencyAttrib.MAlpha)
@@ -535,8 +633,7 @@ class Editor(DirectObject):
         self.wBuffer.setActive(False)
         self.mesh.setShaderInput("water_level", -1.0)
 
-        # light
-        # sun
+    def init_light(self):
         self.sun = self.light_manager.addLight(pos=(256.0, 256.0, 200.0), color=(0.9, 0.9, 0.9), radius=10000.0)
         render.setShaderInput('daytime', 12.0)
 
@@ -550,10 +647,7 @@ class Editor(DirectObject):
         self.sunNode.setPos(256, 256, 0)
         self.shadowCamera.wrtReparentTo(self.sunNode)
 
-        # fog
-        # rgb color + coefficiency in alpha
-        render.setShaderInput("fog", Vec4(0.4, 0.4, 0.4, 0.002))
-
+    def set_keys(self):
         self.keyMap = {'paint': False,
                        'rotate_l': False,
                        'rotate_r': False,
@@ -592,16 +686,14 @@ class Editor(DirectObject):
         self.accept('enter', self.focusOnProperties)
         self.accept('window-event', self.windowEventHandler)
 
-        # make sure things have some/any starting value
+    def set_init_values(self):
         self.setMode(MODE_HEIGHT)
         self.setBrush(0)
         self.painter.setBrushIDColor(BUFFER_ATR, (0, 0, 0, 1.0))
         self.painter.setBrushIDColor(BUFFER_ATR2, (0, 0, 1, 1.0))
         self.setTime(12.0)
-        # tasks
-        taskMgr.add(self.perFrameUpdate, 'perFrameUpdate_task', sort=46)
-        # self.clock=12.0
-        # taskMgr.doMethodLater(.1, self.clockTick,'clock_task')
+
+    # -------------- End Of Initializing ------------------
 
     def setHeading(self, slider):
         if self.mode in (MODE_GRASS, MODE_HEIGHT, MODE_TEXTURE, MODE_WALK):
@@ -625,95 +717,6 @@ class Editor(DirectObject):
         else:
             self.objectPainter.setScale(slider)
             self.size_info['text'] = '%.2f' % self.objectPainter.currentScale
-
-    def loadcfg(self):
-        cfg['srgb'] = ConfigVariableBool('framebuffer-srgb', False).getValue()
-        cfg['filters'] = ConfigVariableInt('koparka-filters', 2).getValue()
-        # render grass? 0=no 1=yes
-        cfg['grass'] = ConfigVariableBool('koparka-use-grass', True).getValue()
-        # size of the maps savesd by the editor
-        cfg['h_map_size'] = ConfigVariableInt('koparka-height-map-size', 512).getValue()
-        cfg['a_map_size'] = ConfigVariableInt('koparka-attribute-map-size', 512).getValue()
-        cfg['g_map_size'] = ConfigVariableInt('koparka-grass-map-size', 512).getValue()
-        cfg['w_map_size'] = ConfigVariableInt('koparka-walk-map-size', 256).getValue()
-        # where to load the data from
-        cfg['brush_dir'] = ConfigVariableString('koparka-brush-dir', "brush/").getValue()
-        cfg['dif_tex_dir'] = ConfigVariableString('koparka-terrain-tex-diffuse-dir', "tex/diffuse/").getValue()
-        cfg['nrm_tex_dir'] = ConfigVariableString('koparka-terrain-tex-normal-dir', "tex/normal/").getValue()
-        cfg['grs_tex_dir'] = ConfigVariableString('koparka-grass-tex-dir', "grass/").getValue()
-        cfg['model_dir'] = ConfigVariableString('koparka-model-dir', "models/").getValue()
-        cfg['walls_dir'] = ConfigVariableString('koparka-walls-dir', "models_walls/").getValue()
-        cfg['actors_dir'] = ConfigVariableString('koparka-actors-dir', "models_actor/").getValue()
-        cfg['coll_dir'] = ConfigVariableString('koparka-collision-dir', "models_collision/").getValue()
-        # default data
-        cfg['h_map_def'] = ConfigVariableString('koparka-default-height-map', "data/def_height.png").getValue()
-        cfg['a_map_def'] = ConfigVariableString('koparka-default-attribute-map', "data/atr_def.png").getValue()
-        cfg['terrain_mesh'] = ConfigVariableString('koparka-default-terrain-mesh', "data/mesh80k.bam").getValue()
-        cfg['sky_mesh'] = ConfigVariableString('koparka-default-skydome-mesh', "data/skydome2").getValue()
-        cfg['sky_tex'] = ConfigVariableString('koparka-default-sky-tex', "data/clouds.png").getValue()
-        cfg['sky_color'] = ConfigVariableString('koparka-default-sky-color-tex', "data/sky_grad.png").getValue()
-        cfg['water_mesh'] = ConfigVariableString('koparka-default-water-mesh', "data/waterplane").getValue()
-        cfg['water_tex'] = ConfigVariableString('koparka-default-water-tex', "data/water.png").getValue()
-        cfg['wave_tex'] = ConfigVariableString('koparka-default-water-wave-tex', "data/ocen3.png").getValue()
-        # shadows (what is seen by the shadow casting camera)
-        cfg['shadow_terrain'] = ConfigVariableBool('koparka-terrain-shadows', True).getValue()
-        cfg['shadow_grass'] = ConfigVariableBool('koparka-grass-shadows', False).getValue()
-        cfg['shadow_objects'] = ConfigVariableBool('koparka-object-shadows', True).getValue()
-        # water reflections (what is seen by the water reflection camera)
-        cfg['reflect_terrain'] = ConfigVariableBool('koparka-terrain-reflection', True).getValue()
-        cfg['reflect_objects'] = ConfigVariableBool('koparka-objects-reflection', True).getValue()
-        cfg['reflect_sky'] = ConfigVariableBool('koparka-sky-reflection', True).getValue()
-        cfg['reflect_grass'] = ConfigVariableBool('koparka-grass-reflection', False).getValue()
-        # shaders
-        cfg['shader_terrain_v'] = ConfigVariableString('koparka-shader-terrain_v', 'shaders/terrain_v.glsl').getValue()
-        cfg['shader_terrain_f'] = ConfigVariableString('koparka-shader-terrain_f', 'shaders/terrain_f.glsl').getValue()
-        cfg['shader_terrain_tc'] = ConfigVariableString('koparka-shader-terrain_tc', '').getValue()
-        cfg['shader_terrain_tes'] = ConfigVariableString('koparka-shader-terrain_tes', '').getValue()
-        cfg['shader_terrain_geo'] = ConfigVariableString('koparka-shader-terrain_geo', '').getValue()
-        cfg['shader_terrain_w_v'] = ConfigVariableString('koparka-shader-terrain_w_v',
-                                                         'shaders/terrain_v.glsl').getValue()
-        cfg['shader_terrain_w_f'] = ConfigVariableString('koparka-shader-terrain_w_f',
-                                                         'shaders/terrain_w_f.glsl').getValue()
-        cfg['shader_editor_v'] = ConfigVariableString('koparka-shader-editor_v', 'shaders/editor_v.glsl').getValue()
-        cfg['shader_editor_f'] = ConfigVariableString('koparka-shader-editor_f', 'shaders/editor_f.glsl').getValue()
-        cfg['shader_water_v'] = ConfigVariableString('koparka-shader-water_v', 'shaders/water2_v.glsl').getValue()
-        cfg['shader_water_f'] = ConfigVariableString('koparka-shader-water_f', 'shaders/water2_f.glsl').getValue()
-        cfg['shader_grass_v'] = ConfigVariableString('koparka-shader-grass_v', 'shaders/grass_lights_v.glsl').getValue()
-        cfg['shader_grass_f'] = ConfigVariableString('koparka-shader-grass_f', 'shaders/grass_lights_f.glsl').getValue()
-        cfg['shader_sky_v'] = ConfigVariableString('koparka-shader-sky_v', 'shaders/cloud_v.glsl').getValue()
-        cfg['shader_sky_f'] = ConfigVariableString('koparka-shader-sky_f', 'shaders/cloud_f.glsl').getValue()
-        # keymap
-        cfg['key_paint'] = ConfigVariableString('koparka-key-paint', 'mouse1').getValue()
-        cfg['key_right'] = ConfigVariableString('koparka-key-rotate-r', 'e').getValue()
-        cfg['key_left'] = ConfigVariableString('koparka-key-rotate-l', 'q').getValue()
-        cfg['key_scale_up'] = ConfigVariableString('koparka-key-scale-up', 'd').getValue()
-        cfg['key_scale_down'] = ConfigVariableString('koparka-key-scale-down', 'a').getValue()
-        cfg['key_alpha_up'] = ConfigVariableString('koparka-key-alpha-up', 'w').getValue()
-        cfg['key_alpha_down'] = ConfigVariableString('koparka-key-alpha-down', 's').getValue()
-        cfg['key_next'] = ConfigVariableString('koparka-key-next', 'tab').getValue()
-        cfg['key_prev'] = ConfigVariableString('koparka-key-prev', 'backspace').getValue()
-        cfg['key_mode_height'] = ConfigVariableString('koparka-key-height-mode', 'f1').getValue()
-        cfg['key_mode_tex'] = ConfigVariableString('koparka-key-texture-mode', 'f2').getValue()
-        cfg['key_mode_grass'] = ConfigVariableString('koparka-key-grass-mode', 'f3').getValue()
-        cfg['key_mode_obj'] = ConfigVariableString('koparka-key-object-mode', 'f4').getValue()
-        cfg['key_mode_walk'] = ConfigVariableString('koparka-key-walk-mode', 'f5').getValue()
-        cfg['key_config'] = ConfigVariableString('koparka-key-config', 'f6').getValue()
-        cfg['key_save'] = ConfigVariableString('koparka-key-save', 'f7').getValue()
-        cfg['key_h'] = ConfigVariableString('koparka-key-axis-h', '1').getValue()
-        cfg['key_p'] = ConfigVariableString('koparka-key-axis-p', '2').getValue()
-        cfg['key_r'] = ConfigVariableString('koparka-key-axis-r', '3').getValue()
-        cfg['key_cam_rotate'] = ConfigVariableString('koparka-key-camera-rotate', 'mouse2').getValue()
-        cfg['key_cam_pan'] = ConfigVariableString('koparka-key-camera-pan', 'mouse3').getValue()
-        cfg['key_cam_zoomin'] = ConfigVariableString('koparka-key-camera-zoomin', 'wheel_up').getValue()
-        cfg['key_cam_zoomout'] = ConfigVariableString('koparka-key-camera-zoomout', 'wheel_down').getValue()
-        cfg['key_cam_slow'] = ConfigVariableString('koparka-key-camera-slow', 'alt').getValue()
-        cfg['key_cam_fast'] = ConfigVariableString('koparka-key-camera-fast', 'control').getValue()
-        cfg['key_cam_rotate2'] = ConfigVariableString('koparka-key-camera-rotate2', 'control').getValue()
-        cfg['key_cam_pan2'] = ConfigVariableString('koparka-key-camera-pan2', 'alt').getValue()
-        cfg['key_cam_zoomin2'] = ConfigVariableString('koparka-key-camera-zoomin2', '=').getValue()
-        cfg['key_cam_zoomout2'] = ConfigVariableString('koparka-key-camera-zoomout2', '-').getValue()
-        cfg['theme'] = ConfigVariableString('koparka-gui-theme', 'icon').getValue()
-        cfg['use_gl_select'] = ConfigVariableBool('koparka-gl-select', False).getValue()
 
     def setLightColor(self):
         if self.objectPainter.currentObject:
@@ -776,7 +779,7 @@ class Editor(DirectObject):
             p = sunpos * -180.0
 
         self.sunNode.setP(p)
-        self.light_manager.moveLight(self.sun,self.shadowCamera.getPos(render))
+        self.light_manager.moveLight(self.sun, self.shadowCamera.getPos(render))
         self.light_manager.setLight(id=self.sun, pos=self.shadowCamera.getPos(render), color=sunColor, radius=10000.0)
         self.skydome.setShaderInput("sunColor", sunColor)
         self.skydome.setShaderInput("skyColor", skyColor)
@@ -1538,7 +1541,8 @@ class Editor(DirectObject):
                     if self.objectPainter.selectedObject.hasPythonTag('hasLight'):
                         self.gui.colorPickerFrame.show()
                         id = self.objectPainter.selectedObject.getPythonTag('hasLight')
-                        color = [int(self.light_manager.lights[id][4] * 255), int(self.light_manager.lights[id][5] * 255),
+                        color = [int(self.light_manager.lights[id][4] * 255),
+                                 int(self.light_manager.lights[id][5] * 255),
                                  int(self.light_manager.lights[id][6] * 255)]
                         self.gui.colorEntry.set(str(color)[1:-1])
                         self.gui.overrideColor()
@@ -1840,4 +1844,3 @@ class Editor(DirectObject):
 if __name__ == "__main__":
     app = Editor()
     base.run()
-    print(base)
